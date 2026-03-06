@@ -57,8 +57,8 @@ BET_TYPES = [
     "Other",
 ]
 
-OUTCOMES = ["open", "win", "lost", "void"]
 BET_FACTORS = [1.0, 0.5, 0.25]
+SETTLE_OUTCOMES = ["win", "lost", "void"]
 
 AHC_OPTIONS = [
     "Home -2.0",
@@ -130,13 +130,17 @@ FORM_DEFAULTS = {
     "bet_type": "1X2",
     "bet": "Home",
     "odd": 1.80,
-    "result": "",
-    "outcome": "open",
 }
 
 APP_DEFAULTS = {
     "starting_bankroll": 1000.0,
     "base_stake_pct": 1.0,
+}
+
+SETTLEMENT_DEFAULTS = {
+    "selected_open_bet_id": None,
+    "settle_result": "",
+    "settle_outcome": "win",
 }
 
 
@@ -146,6 +150,10 @@ def init_state() -> None:
             st.session_state[key] = value
 
     for key, value in FORM_DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    for key, value in SETTLEMENT_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
@@ -227,6 +235,32 @@ def delete_last_row() -> bool:
     ws.delete_rows(len(rows))
     return True
 
+
+def update_row_by_bet_id(bet_id: int, updates: dict) -> bool:
+    ws = get_worksheet()
+    all_values = ws.get_all_values()
+
+    if len(all_values) < 2:
+        return False
+
+    headers = all_values[0]
+
+    bet_id_col = headers.index("bet_id") + 1
+
+    for row_idx in range(2, len(all_values) + 1):
+        cell_value = ws.cell(row_idx, bet_id_col).value
+        try:
+            if int(float(cell_value)) == int(bet_id):
+                for key, value in updates.items():
+                    if key in headers:
+                        col_idx = headers.index(key) + 1
+                        ws.update_cell(row_idx, col_idx, value)
+                return True
+        except Exception:
+            continue
+
+    return False
+
 # --------------------------------------------------
 # Business logic
 # --------------------------------------------------
@@ -254,21 +288,32 @@ def get_bet_options(bet_type: str) -> list[str]:
 def format_match(home: str, away: str) -> str:
     return f"{home} – {away}"
 
+
+def get_current_bankroll_from_settled(df: pd.DataFrame, starting_bankroll: float) -> float:
+    if df.empty:
+        return float(starting_bankroll)
+
+    settled = df[df["outcome"].astype(str).str.lower().isin(["win", "lost", "void"])].copy()
+
+    if settled.empty or settled["bankroll_after"].dropna().empty:
+        return float(starting_bankroll)
+
+    return float(settled["bankroll_after"].dropna().iloc[-1])
+
 # --------------------------------------------------
 # Load data
 # --------------------------------------------------
 df = load_data()
 
-if df.empty or df["bankroll_after"].dropna().empty:
-    current_bankroll = float(st.session_state["starting_bankroll"])
-else:
-    current_bankroll = float(df["bankroll_after"].dropna().iloc[-1])
+current_bankroll = get_current_bankroll_from_settled(
+    df, float(st.session_state["starting_bankroll"])
+)
 
 # --------------------------------------------------
-# Sidebar inputs
+# Sidebar: new bet input only
 # --------------------------------------------------
 with st.sidebar:
-    st.header("Input")
+    st.header("New Bet")
 
     st.number_input(
         "Starting bankroll",
@@ -320,21 +365,18 @@ with st.sidebar:
         key="odd",
     )
 
-    st.text_input("Result", key="result")
-    st.selectbox("Outcome", OUTCOMES, key="outcome")
-
     st.caption(f"Gate pass: {'TRUE' if gate_pass else 'FALSE'}")
 
-    col1, col2 = st.columns(2)
-    save_bet = col1.button("Save bet", use_container_width=True)
-    clear_bet = col2.button("Clear form", use_container_width=True)
+    c1, c2 = st.columns(2)
+    save_bet = c1.button("Save new bet", use_container_width=True)
+    clear_form = c2.button("Clear form", use_container_width=True)
 
     delete_last = st.button("Delete last bet", use_container_width=True)
 
 # --------------------------------------------------
-# Actions
+# Actions: sidebar
 # --------------------------------------------------
-if clear_bet:
+if clear_form:
     st.session_state["reset_form"] = True
     st.rerun()
 
@@ -360,16 +402,7 @@ if save_bet:
         stake_pct = float(st.session_state["base_stake_pct"])
         bet_factor = float(st.session_state["bet_factor"])
         odd = float(st.session_state["odd"])
-        outcome = st.session_state["outcome"]
-
         stake_amt = current_bankroll * (stake_pct / 100.0) * bet_factor
-
-        pnl = 0.0
-        bankroll_after = current_bankroll
-
-        if outcome != "open":
-            pnl = calc_pnl(outcome, stake_amt, odd)
-            bankroll_after = current_bankroll + pnl
 
         row = {
             "bet_id": next_bet_id,
@@ -385,31 +418,40 @@ if save_bet:
             "odd": odd,
             "stake_pct": stake_pct,
             "stake_amt": round(stake_amt, 2),
-            "result": st.session_state["result"].strip(),
-            "outcome": outcome,
-            "pnl": round(pnl, 2),
-            "bankroll_after": round(bankroll_after, 2),
+            "result": "",
+            "outcome": "open",
+            "pnl": "",
+            "bankroll_after": "",
         }
 
         append_row(row)
         st.session_state["reset_form"] = True
-        st.success("Bet saved.")
+        st.success("New bet saved.")
         st.rerun()
 
 # --------------------------------------------------
 # KPI calculations
 # --------------------------------------------------
-bets_count = 0 if df.empty else len(df)
-total_pnl = 0.0 if df.empty else float(df["pnl"].fillna(0).sum())
-avg_odds = 0.0 if df.empty else float(df["odd"].dropna().mean()) if df["odd"].dropna().size else 0.0
-total_stake = 0.0 if df.empty else float(df["stake_amt"].fillna(0).sum())
+settled_df = df[df["outcome"].astype(str).str.lower().isin(["win", "lost", "void"])].copy()
+open_df = df[df["outcome"].astype(str).str.lower().eq("open")].copy()
+
+bets_count = len(settled_df)
+total_pnl = float(settled_df["pnl"].fillna(0).sum()) if not settled_df.empty else 0.0
+avg_odds = (
+    float(settled_df["odd"].dropna().mean())
+    if not settled_df.empty and settled_df["odd"].dropna().size
+    else 0.0
+)
+total_stake = float(settled_df["stake_amt"].fillna(0).sum()) if not settled_df.empty else 0.0
 roi = (total_pnl / total_stake * 100.0) if total_stake > 0 else 0.0
 
 win_rate = 0.0
-if not df.empty and "outcome" in df.columns:
-    settled = df["outcome"].fillna("").str.lower().isin(["win", "lost"])
-    if settled.sum() > 0:
-        win_rate = (df.loc[settled, "outcome"].str.lower() == "win").mean() * 100.0
+if not settled_df.empty:
+    settled_binary = settled_df["outcome"].fillna("").str.lower().isin(["win", "lost"])
+    if settled_binary.sum() > 0:
+        win_rate = (
+            settled_df.loc[settled_binary, "outcome"].str.lower().eq("win").mean() * 100.0
+        )
 
 # --------------------------------------------------
 # Main screen
@@ -431,14 +473,14 @@ st.caption(
 )
 
 # --------------------------------------------------
-# Chart
+# Bankroll chart (settled only)
 # --------------------------------------------------
 st.subheader("Bankroll over time")
 
-if df.empty:
-    st.info("No bets available yet.")
+if settled_df.empty:
+    st.info("No settled bets available yet.")
 else:
-    chart_df = df[df["bet_id"].notna() & df["bankroll_after"].notna()].copy()
+    chart_df = settled_df[settled_df["bet_id"].notna() & settled_df["bankroll_after"].notna()].copy()
     chart_df["bet_id"] = chart_df["bet_id"].astype(int)
     chart_df = chart_df.sort_values("bet_id")
 
@@ -453,14 +495,103 @@ else:
     st.line_chart(chart_out)
 
 # --------------------------------------------------
-# History table
+# Open bets section
+# --------------------------------------------------
+st.subheader("Open Bets")
+
+if open_df.empty:
+    st.write("No open bets.")
+else:
+    open_display = open_df.copy()
+    open_display["Date"] = pd.to_datetime(open_display["ts"], errors="coerce").dt.strftime("%Y-%m-%d")
+    open_display["Match"] = open_display.apply(
+        lambda x: format_match(str(x["home"]), str(x["away"])),
+        axis=1,
+    )
+    open_display["Odds"] = open_display["odd"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    open_display["Stake %"] = open_display["stake_pct"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
+    open_display["Factor"] = open_display["bet_factor"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    open_display["Stake"] = open_display["stake_amt"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+
+    st.dataframe(
+        open_display[
+            ["bet_id", "Date", "Match", "bet", "Odds", "Stake %", "Factor", "Stake"]
+        ].rename(
+            columns={
+                "bet_id": "Bet#",
+                "bet": "Bet",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    open_options = {
+        f"Bet #{int(row['bet_id'])} | {row['home']} – {row['away']} | {row['bet']}": int(row["bet_id"])
+        for _, row in open_df.iterrows()
+        if pd.notna(row["bet_id"])
+    }
+
+    selected_label = st.selectbox(
+        "Select open bet to settle",
+        options=list(open_options.keys()),
+        index=0 if open_options else None,
+    )
+
+    selected_bet_id = open_options[selected_label]
+    selected_row = open_df[open_df["bet_id"] == selected_bet_id].iloc[0]
+
+    s1, s2, s3 = st.columns([2, 2, 1])
+    with s1:
+        settle_result = st.text_input("Result", key="settle_result")
+    with s2:
+        settle_outcome = st.selectbox("Settlement outcome", SETTLE_OUTCOMES, key="settle_outcome")
+    with s3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        settle_button = st.button("Settle bet", use_container_width=True)
+
+    if settle_button:
+        if not str(settle_result).strip():
+            st.error("Please enter a result.")
+        else:
+            settle_odd = float(selected_row["odd"])
+            settle_stake = float(selected_row["stake_amt"])
+            pnl = calc_pnl(settle_outcome, settle_stake, settle_odd)
+
+            previous_settled = settled_df[settled_df["bet_id"] < selected_bet_id].copy()
+            if previous_settled.empty or previous_settled["bankroll_after"].dropna().empty:
+                bankroll_before = float(st.session_state["starting_bankroll"])
+            else:
+                bankroll_before = float(previous_settled["bankroll_after"].dropna().iloc[-1])
+
+            bankroll_after = bankroll_before + pnl
+
+            updated = update_row_by_bet_id(
+                selected_bet_id,
+                {
+                    "result": settle_result.strip(),
+                    "outcome": settle_outcome,
+                    "pnl": round(pnl, 2),
+                    "bankroll_after": round(bankroll_after, 2),
+                },
+            )
+
+            if updated:
+                st.session_state["settle_result"] = ""
+                st.success("Bet settled.")
+                st.rerun()
+            else:
+                st.error("Could not update the selected bet.")
+
+# --------------------------------------------------
+# History table (settled only)
 # --------------------------------------------------
 st.subheader("History")
 
-if df.empty:
-    st.write("No history yet.")
+if settled_df.empty:
+    st.write("No settled history yet.")
 else:
-    history_df = df.copy()
+    history_df = settled_df.copy()
     history_df["Date"] = pd.to_datetime(history_df["ts"], errors="coerce").dt.strftime("%Y-%m-%d")
     history_df["Match"] = history_df.apply(
         lambda x: format_match(str(x["home"]), str(x["away"])),
