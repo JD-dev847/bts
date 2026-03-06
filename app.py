@@ -140,21 +140,28 @@ APP_DEFAULTS = {
 }
 
 
-def init_state():
+def init_state() -> None:
     for key, value in APP_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
     for key, value in FORM_DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
+    if "reset_form" not in st.session_state:
+        st.session_state["reset_form"] = False
 
-def clear_form():
-    for key, value in FORM_DEFAULTS.items():
-        st.session_state[key] = value
+
+def apply_form_reset() -> None:
+    if st.session_state["reset_form"]:
+        for key, value in FORM_DEFAULTS.items():
+            st.session_state[key] = value
+        st.session_state["reset_form"] = False
 
 
 init_state()
+apply_form_reset()
 
 # --------------------------------------------------
 # Google Sheets helpers
@@ -328,7 +335,7 @@ with st.sidebar:
 # Actions
 # --------------------------------------------------
 if clear_bet:
-    clear_form()
+    st.session_state["reset_form"] = True
     st.rerun()
 
 if delete_last:
@@ -385,7 +392,7 @@ if save_bet:
         }
 
         append_row(row)
-        clear_form()
+        st.session_state["reset_form"] = True
         st.success("Bet saved.")
         st.rerun()
 
