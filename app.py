@@ -232,7 +232,13 @@ with st.sidebar:
         home = st.text_input("Home", key="home")
         away = st.text_input("Away", key="away")
 
-    score = st.number_input("Structural Score", 0.0, 20.0, 8.0, 0.5, key="score")
+    score = st.number_input(
+        "Structural Score",
+        min_value=0.0,
+        max_value=20.0,
+        step=0.5,
+        key="score",
+    )
     gate = score >= GATE_THRESHOLD
 
     factor = st.selectbox("Bet Factor", BET_FACTORS, key="factor")
@@ -241,9 +247,16 @@ with st.sidebar:
     options = bet_options(bet_type)
     if st.session_state["bet_selection"] not in options:
         st.session_state["bet_selection"] = options[0]
+
     bet_selection = st.selectbox("Bet", options, key="bet_selection")
 
-    odd = st.number_input("Odd", 1.01, 10.0, 1.80, 0.01, key="odd")
+    odd = st.number_input(
+        "Odd",
+        min_value=1.01,
+        max_value=10.0,
+        step=0.01,
+        key="odd",
+    )
 
     st.caption(f"Gate pass: {'TRUE' if gate else 'FALSE'}")
 
@@ -373,25 +386,28 @@ else:
     settle = st.button("Settle Bet")
 
     if settle:
-        row = openbets[openbets["bet_id"] == bet_id].iloc[0]
-        p = calc_pnl(outcome, row["stake_amt"], row["odd"])
-        new_bankroll = bankroll + p
-
-        updated = update_row(
-            bet_id,
-            {
-                "result": result,
-                "outcome": outcome,
-                "pnl": round(p, 2),
-                "bankroll_after": round(new_bankroll, 2),
-            },
-        )
-
-        if updated:
-            st.success("Bet settled.")
-            st.rerun()
+        if not result.strip():
+            st.error("Please enter a result.")
         else:
-            st.error("Could not update selected bet.")
+            row = openbets[openbets["bet_id"] == bet_id].iloc[0]
+            p = calc_pnl(outcome, row["stake_amt"], row["odd"])
+            new_bankroll = bankroll + p
+
+            updated = update_row(
+                bet_id,
+                {
+                    "result": result,
+                    "outcome": outcome,
+                    "pnl": round(p, 2),
+                    "bankroll_after": round(new_bankroll, 2),
+                },
+            )
+
+            if updated:
+                st.success("Bet settled.")
+                st.rerun()
+            else:
+                st.error("Could not update selected bet.")
 
 # --------------------------------------------------
 # History
