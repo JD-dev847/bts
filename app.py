@@ -381,9 +381,17 @@ else:
     pick = st.selectbox("Select bet to settle", list(options.keys()))
     bet_id = options[pick]
 
+c1, c2, c3 = st.columns([2,2,1])
+
+with c1:
     result = st.text_input("Result")
+
+with c2:
     outcome = st.selectbox("Outcome", SETTLE_OUTCOMES)
-    settle = st.button("Settle Bet")
+
+with c3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    settle = st.button("Settle Bet", use_container_width=True)
 
     if settle:
         if not result.strip():
