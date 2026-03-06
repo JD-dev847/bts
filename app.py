@@ -27,35 +27,80 @@ SETTLE_OUTCOMES = ["win", "lost", "void"]
 LEAGUES = ["2. Bundesliga", "Other"]
 
 TEAMS_2BL = [
-    "Hannover 96","Schalke 04","Hertha BSC","Hamburger SV","Fortuna Düsseldorf",
-    "Greuther Fürth","Karlsruher SC","1. FC Nürnberg","1. FC Kaiserslautern",
-    "SC Paderborn","Eintracht Braunschweig","Magdeburg","Darmstadt",
-    "Holstein Kiel","SV Elversberg","Preußen Münster","Arminia Bielefeld","Dynamo Dresden"
+    "Arminia Bielefeld",
+    "Dynamo Dresden",
+    "Eintracht Braunschweig",
+    "FC Schalke 04",
+    "Fortuna Düsseldorf",
+    "Greuther Fürth",
+    "Hannover 96",
+    "Hertha BSC",
+    "Holstein Kiel",
+    "Karlsruher SC",
+    "SC Paderborn",
+    "SV Darmstadt 98",
+    "SV Elversberg",
+    "Preußen Münster",
+    "1. FC Kaiserslautern",
+    "1. FC Magdeburg",
+    "1. FC Nürnberg",
+    "VfL Bochum",
 ]
 
-BET_TYPES = ["1X2","Over/Under","Asian Handicap","BTTS"]
+BET_TYPES = ["1X2", "Over/Under", "Asian Handicap", "BTTS"]
 
-ONE_X_TWO = ["Home","Draw","Away"]
+ONE_X_TWO = ["Home", "Draw", "Away"]
 
 OU_OPTIONS = [
-    "Over 0.5","Over 1.5","Over 2.5","Over 3.5","Over 4.5",
-    "Under 0.5","Under 1.5","Under 2.5","Under 3.5","Under 4.5"
+    "Over 0.5", "Over 1.5", "Over 2.5", "Over 3.5", "Over 4.5",
+    "Under 0.5", "Under 1.5", "Under 2.5", "Under 3.5", "Under 4.5"
 ]
 
-BTTS_OPTIONS = ["Yes","No"]
+BTTS_OPTIONS = ["Yes", "No"]
 
 AHC_OPTIONS = [
-    "Home -2.0","Home -1.75","Home -1.5","Home -1.25","Home -1.0",
-    "Home -0.75","Home -0.5","Home -0.25","Home 0",
-    "Away 0","Away +0.25","Away +0.5","Away +0.75",
-    "Away +1.0","Away +1.25","Away +1.5","Away +1.75","Away +2.0"
+    "Home -2.0", "Home -1.75", "Home -1.5", "Home -1.25", "Home -1.0",
+    "Home -0.75", "Home -0.5", "Home -0.25", "Home 0",
+    "Away 0", "Away +0.25", "Away +0.5", "Away +0.75",
+    "Away +1.0", "Away +1.25", "Away +1.5", "Away +1.75", "Away +2.0"
 ]
 
 COLUMNS = [
-    "bet_id","ts","league","home","away","structural_score_total",
-    "gate_pass","bet_factor","bet_type","bet","odd","stake_pct",
-    "stake_amt","result","outcome","pnl","bankroll_after"
+    "bet_id", "ts", "league", "home", "away", "structural_score_total",
+    "gate_pass", "bet_factor", "bet_type", "bet", "odd", "stake_pct",
+    "stake_amt", "result", "outcome", "pnl", "bankroll_after"
 ]
+
+# --------------------------------------------------
+# Session state
+# --------------------------------------------------
+
+FORM_DEFAULTS = {
+    "league": "2. Bundesliga",
+    "home": "",
+    "away": "",
+    "score": 8.0,
+    "factor": 1.0,
+    "bet_type": "1X2",
+    "bet_selection": "Home",
+    "odd": 1.80,
+}
+
+def init_state():
+    for key, value in FORM_DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    if "reset_form" not in st.session_state:
+        st.session_state["reset_form"] = False
+
+def apply_form_reset():
+    if st.session_state["reset_form"]:
+        for key, value in FORM_DEFAULTS.items():
+            st.session_state[key] = value
+        st.session_state["reset_form"] = False
+
+init_state()
+apply_form_reset()
 
 # --------------------------------------------------
 # Google connection
@@ -87,83 +132,75 @@ def load():
         if col not in df.columns:
             df[col] = None
 
-    df = df[COLUMNS]
+    df = df[COLUMNS].copy()
 
     numeric = [
-        "bet_id","structural_score_total","bet_factor",
-        "odd","stake_pct","stake_amt","pnl","bankroll_after"
+        "bet_id", "structural_score_total", "bet_factor",
+        "odd", "stake_pct", "stake_amt", "pnl", "bankroll_after"
     ]
 
     for c in numeric:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    df["bet_id"] = pd.to_numeric(df["bet_id"], errors="coerce")
     df = df.sort_values("bet_id").reset_index(drop=True)
     return df
 
 # --------------------------------------------------
-# Append row
+# Data actions
 # --------------------------------------------------
 
 def append(row):
-    sheet().append_row([row.get(c,"") for c in COLUMNS])
-
-# --------------------------------------------------
-# Update row
-# --------------------------------------------------
+    sheet().append_row([row.get(c, "") for c in COLUMNS], value_input_option="USER_ENTERED")
 
 def update_row(bet_id, updates):
-
     ws = sheet()
     data = ws.get_all_values()
     header = data[0]
+    id_col = header.index("bet_id") + 1
 
-    id_col = header.index("bet_id")+1
-
-    for i in range(2,len(data)+1):
-
-        val = ws.cell(i,id_col).value
-
+    for i in range(2, len(data) + 1):
+        val = ws.cell(i, id_col).value
         try:
-            if int(float(val)) == bet_id:
-
-                for k,v in updates.items():
-
-                    col = header.index(k)+1
-                    ws.update_cell(i,col,v)
-
+            if int(float(val)) == int(bet_id):
+                for k, v in updates.items():
+                    if k in header:
+                        col = header.index(k) + 1
+                        ws.update_cell(i, col, v)
                 return True
-        except:
+        except Exception:
             pass
-
     return False
 
+def delete_last_row():
+    ws = sheet()
+    rows = ws.get_all_values()
+    if len(rows) <= 1:
+        return False
+    ws.delete_rows(len(rows))
+    return True
+
 # --------------------------------------------------
-# Helper
+# Helpers
 # --------------------------------------------------
 
-def pnl(outcome,stake,odd):
-
-    if outcome=="win":
-        return stake*(odd-1)
-
-    if outcome=="lost":
+def calc_pnl(outcome, stake, odd):
+    if outcome == "win":
+        return stake * (odd - 1)
+    if outcome == "lost":
         return -stake
-
-    return 0
+    return 0.0
 
 def bet_options(bet_type):
-
-    if bet_type=="1X2":
+    if bet_type == "1X2":
         return ONE_X_TWO
-
-    if bet_type=="Over/Under":
+    if bet_type == "Over/Under":
         return OU_OPTIONS
-
-    if bet_type=="Asian Handicap":
+    if bet_type == "Asian Handicap":
         return AHC_OPTIONS
-
-    if bet_type=="BTTS":
+    if bet_type == "BTTS":
         return BTTS_OPTIONS
+    return ["Other"]
 
 # --------------------------------------------------
 # Load dataset
@@ -171,115 +208,118 @@ def bet_options(bet_type):
 
 df = load()
 
-settled = df[df["outcome"].isin(["win","lost","void"])].copy()
-openbets = df[df["outcome"]=="open"].copy()
+settled = df[df["outcome"].astype(str).isin(["win", "lost", "void"])].copy()
+openbets = df[df["outcome"].astype(str) == "open"].copy()
 
-if settled.empty:
+if settled.empty or settled["bankroll_after"].dropna().empty:
     bankroll = STARTING_BANKROLL
 else:
-    bankroll = settled["bankroll_after"].dropna().iloc[-1]
+    bankroll = float(settled["bankroll_after"].dropna().iloc[-1])
 
 # --------------------------------------------------
-# Sidebar (new bet)
+# Sidebar (new bet only)
 # --------------------------------------------------
 
 with st.sidebar:
-
     st.header("New Bet")
 
-    league = st.selectbox("League",LEAGUES)
+    league = st.selectbox("League", LEAGUES, key="league")
 
-    if league=="2. Bundesliga":
-
-        home = st.selectbox("Home",TEAMS_2BL)
-        away = st.selectbox("Away",TEAMS_2BL)
-
+    if league == "2. Bundesliga":
+        home = st.selectbox("Home", [""] + TEAMS_2BL, key="home")
+        away = st.selectbox("Away", [""] + TEAMS_2BL, key="away")
     else:
+        home = st.text_input("Home", key="home")
+        away = st.text_input("Away", key="away")
 
-        home = st.text_input("Home")
-        away = st.text_input("Away")
+    score = st.number_input("Structural Score", 0.0, 20.0, 8.0, 0.5, key="score")
+    gate = score >= GATE_THRESHOLD
 
-    score = st.number_input("Structural Score",0.0,20.0,8.0,0.5)
+    factor = st.selectbox("Bet Factor", BET_FACTORS, key="factor")
+    bet_type = st.selectbox("Bet Type", BET_TYPES, key="bet_type")
 
-    gate = score>=GATE_THRESHOLD
+    options = bet_options(bet_type)
+    if st.session_state["bet_selection"] not in options:
+        st.session_state["bet_selection"] = options[0]
+    bet_selection = st.selectbox("Bet", options, key="bet_selection")
 
-    factor = st.selectbox("Bet Factor",BET_FACTORS)
-
-    bet_type = st.selectbox("Bet Type",BET_TYPES)
-
-    bet = st.selectbox("Bet",bet_options(bet_type))
-
-    odd = st.number_input("Odd",1.01,10.0,1.80,0.01)
+    odd = st.number_input("Odd", 1.01, 10.0, 1.80, 0.01, key="odd")
 
     st.caption(f"Gate pass: {'TRUE' if gate else 'FALSE'}")
 
-    save = st.button("Save Bet")
+    save = st.button("Save Bet", use_container_width=True)
+    delete_last = st.button("Delete Last Bet", use_container_width=True)
 
 # --------------------------------------------------
 # Save new bet
 # --------------------------------------------------
 
 if save:
-
-    if home==away or home=="" or away=="":
-
-        st.error("Check teams")
-
+    if home == away or home == "" or away == "":
+        st.error("Check teams.")
     else:
-
-        next_id = 1 if df.empty else int(df["bet_id"].max())+1
-
-        stake = bankroll*(BASE_STAKE_PCT/100)*factor
+        next_id = 1 if df.empty else int(df["bet_id"].max()) + 1
+        stake = bankroll * (BASE_STAKE_PCT / 100) * factor
 
         row = {
-            "bet_id":next_id,
-            "ts":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "league":league,
-            "home":home,
-            "away":away,
-            "structural_score_total":score,
-            "gate_pass":gate,
-            "bet_factor":factor,
-            "bet_type":bet_type,
-            "bet":bet,
-            "odd":odd,
-            "stake_pct":BASE_STAKE_PCT,
-            "stake_amt":round(stake,2),
-            "result":"",
-            "outcome":"open",
-            "pnl":"",
-            "bankroll_after":""
+            "bet_id": next_id,
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "league": league,
+            "home": home,
+            "away": away,
+            "structural_score_total": score,
+            "gate_pass": gate,
+            "bet_factor": factor,
+            "bet_type": bet_type,
+            "bet": bet_selection,
+            "odd": odd,
+            "stake_pct": BASE_STAKE_PCT,
+            "stake_amt": round(stake, 2),
+            "result": "",
+            "outcome": "open",
+            "pnl": "",
+            "bankroll_after": ""
         }
 
         append(row)
-
-        st.success("Bet saved")
+        st.session_state["reset_form"] = True
+        st.success("Bet saved.")
         st.rerun()
+
+if delete_last:
+    deleted = delete_last_row()
+    if deleted:
+        st.warning("Last bet deleted.")
+    else:
+        st.info("No row available to delete.")
+    st.rerun()
 
 # --------------------------------------------------
 # KPIs
 # --------------------------------------------------
 
-bets=len(settled)
-
-total_pnl=settled["pnl"].sum() if not settled.empty else 0
-
-roi=(total_pnl/settled["stake_amt"].sum()*100) if bets>0 else 0
-
-avg_odds=settled["odd"].mean() if bets>0 else 0
-
-winrate=(settled["outcome"]=="win").mean()*100 if bets>0 else 0
+bets = len(settled)
+total_pnl = float(settled["pnl"].sum()) if not settled.empty else 0.0
+total_stake = float(settled["stake_amt"].sum()) if not settled.empty else 0.0
+roi = (total_pnl / total_stake * 100) if total_stake > 0 else 0.0
+avg_odds = float(settled["odd"].mean()) if not settled.empty else 0.0
+winrate = float((settled["outcome"] == "win").mean() * 100) if bets > 0 else 0.0
 
 st.title("Bet Tracker")
 
-c1,c2,c3,c4,c5,c6=st.columns(6)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1.metric("Bankroll", f"{bankroll:.2f}")
+c2.metric("PnL", f"{total_pnl:+.2f}")
+c3.metric("ROI", f"{roi:.2f}%")
+c4.metric("Win Rate", f"{winrate:.1f}%")
+c5.metric("Bets", bets)
+c6.metric("Avg Odds", f"{avg_odds:.2f}" if bets > 0 else "—")
 
-c1.metric("Bankroll",f"{bankroll:.2f}")
-c2.metric("PnL",f"{total_pnl:+.2f}")
-c3.metric("ROI",f"{roi:.2f}%")
-c4.metric("Win Rate",f"{winrate:.1f}%")
-c5.metric("Bets",bets)
-c6.metric("Avg Odds",f"{avg_odds:.2f}")
+st.caption(
+    f"Starting bankroll: {STARTING_BANKROLL:.2f} | "
+    f"Base stake: {BASE_STAKE_PCT:.1f}% | "
+    f"Gate threshold: {GATE_THRESHOLD:.1f}"
+)
 
 # --------------------------------------------------
 # Chart
@@ -287,12 +327,11 @@ c6.metric("Avg Odds",f"{avg_odds:.2f}")
 
 st.subheader("Bankroll")
 
-if not settled.empty:
-
-    chart=settled[["bet_id","bankroll_after"]].dropna()
-
-    chart=chart.set_index("bet_id")
-
+if settled.empty:
+    st.write("No settled bets yet.")
+else:
+    chart = settled[["bet_id", "bankroll_after"]].dropna().copy()
+    chart = chart.set_index("bet_id")
     st.line_chart(chart)
 
 # --------------------------------------------------
@@ -302,44 +341,57 @@ if not settled.empty:
 st.subheader("Open Bets")
 
 if openbets.empty:
-
-    st.write("No open bets")
-
+    st.write("No open bets.")
 else:
+    open_view = openbets.copy()
+    open_view["Date"] = pd.to_datetime(open_view["ts"], errors="coerce").dt.strftime("%Y-%m-%d")
+    open_view["Match"] = open_view["home"] + " - " + open_view["away"]
+    open_view["Odds"] = open_view["odd"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    open_view["Stake"] = open_view["stake_amt"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
 
-    openbets["Match"]=openbets["home"]+" - "+openbets["away"]
+    st.dataframe(
+        open_view[["bet_id", "Date", "Match", "bet", "Odds", "Stake"]].rename(
+            columns={
+                "bet_id": "Bet#",
+                "bet": "Bet",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    st.dataframe(openbets[["bet_id","Match","bet","odd","stake_amt"]])
+    options = {
+        f"Bet #{int(r.bet_id)} | {r.home} - {r.away} | {r.bet}": int(r.bet_id)
+        for _, r in openbets.iterrows()
+    }
 
-    options={f"{r.bet_id} {r.home}-{r.away}":r.bet_id for _,r in openbets.iterrows()}
+    pick = st.selectbox("Select bet to settle", list(options.keys()))
+    bet_id = options[pick]
 
-    pick=st.selectbox("Select bet to settle",list(options.keys()))
-
-    bet_id=options[pick]
-
-    result=st.text_input("Result")
-
-    outcome=st.selectbox("Outcome",SETTLE_OUTCOMES)
-
-    settle=st.button("Settle Bet")
+    result = st.text_input("Result")
+    outcome = st.selectbox("Outcome", SETTLE_OUTCOMES)
+    settle = st.button("Settle Bet")
 
     if settle:
+        row = openbets[openbets["bet_id"] == bet_id].iloc[0]
+        p = calc_pnl(outcome, row["stake_amt"], row["odd"])
+        new_bankroll = bankroll + p
 
-        row=openbets[openbets["bet_id"]==bet_id].iloc[0]
+        updated = update_row(
+            bet_id,
+            {
+                "result": result,
+                "outcome": outcome,
+                "pnl": round(p, 2),
+                "bankroll_after": round(new_bankroll, 2),
+            },
+        )
 
-        p=pnl(outcome,row["stake_amt"],row["odd"])
-
-        new_bankroll=bankroll+p
-
-        update_row(bet_id,{
-            "result":result,
-            "outcome":outcome,
-            "pnl":round(p,2),
-            "bankroll_after":round(new_bankroll,2)
-        })
-
-        st.success("Bet settled")
-        st.rerun()
+        if updated:
+            st.success("Bet settled.")
+            st.rerun()
+        else:
+            st.error("Could not update selected bet.")
 
 # --------------------------------------------------
 # History
@@ -348,21 +400,27 @@ else:
 st.subheader("History")
 
 if settled.empty:
-
-    st.write("No history")
-
+    st.write("No history.")
 else:
-
-    hist=settled.copy()
-
-    hist["Match"]=hist["home"]+" - "+hist["away"]
-
-    hist["Date"]=pd.to_datetime(hist["ts"]).dt.date
+    hist = settled.copy()
+    hist["Date"] = pd.to_datetime(hist["ts"], errors="coerce").dt.strftime("%Y-%m-%d")
+    hist["Match"] = hist["home"] + " - " + hist["away"]
+    hist["Odds"] = hist["odd"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    hist["Stake"] = hist["stake_amt"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    hist["PnL"] = hist["pnl"].map(lambda x: f"{x:+.2f}" if pd.notna(x) else "")
+    hist["Bankroll"] = hist["bankroll_after"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
+    hist["Outcome"] = hist["outcome"].astype(str).str.title()
 
     st.dataframe(
         hist[[
-            "bet_id","Date","Match","bet",
-            "odd","stake_amt","outcome","pnl","bankroll_after"
-        ]],
-        use_container_width=True
+            "bet_id", "Date", "Match", "bet",
+            "Odds", "Stake", "Outcome", "PnL", "Bankroll"
+        ]].rename(
+            columns={
+                "bet_id": "Bet#",
+                "bet": "Bet",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
     )
