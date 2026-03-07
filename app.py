@@ -9,6 +9,32 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Bet Tracker", layout="wide")
 
 # --------------------------------------------------
+# Password gate
+# --------------------------------------------------
+
+def check_password():
+    if st.session_state.get("authenticated", False):
+        return True
+
+    st.title("Bet Tracker")
+    st.caption("Protected access")
+
+    with st.form("login_form"):
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
+
+    if submitted:
+        if password == st.secrets["auth"]["app_password"]:
+            st.session_state["authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+
+    st.stop()
+
+check_password()
+
+# --------------------------------------------------
 # Fixed configuration
 # --------------------------------------------------
 
@@ -67,9 +93,24 @@ AHC_OPTIONS = [
 ]
 
 COLUMNS = [
-    "bet_id", "ts", "league", "home", "away", "structural_score_total",
-    "gate_pass", "bet_factor", "bet_type", "bet", "odd", "stake_pct",
-    "stake_amt", "result", "outcome", "pnl", "bankroll_after"
+    "bet_id",
+    "ts",
+    "league",
+    "home",
+    "away",
+    "structural_score_total",
+    "gate_pass",
+    "bet_factor",
+    "bet_type",
+    "bet",
+    "pred_scoreline",
+    "odd",
+    "stake_pct",
+    "stake_amt",
+    "result",
+    "outcome",
+    "pnl",
+    "bankroll_after",
 ]
 
 # --------------------------------------------------
@@ -84,6 +125,7 @@ FORM_DEFAULTS = {
     "factor": 1.0,
     "bet_type": "1X2",
     "bet_selection": "Home",
+    "pred_scoreline": "",
     "odd": 1.80,
 }
 
@@ -224,6 +266,12 @@ else:
 with st.sidebar:
     st.header("New Bet")
 
+    if st.button("Logout", use_container_width=True):
+        st.session_state["authenticated"] = False
+        st.rerun()
+
+    st.markdown("---")
+
     league = st.selectbox("League", LEAGUES, key="league")
 
     if league == "2. Bundesliga":
@@ -249,6 +297,12 @@ with st.sidebar:
         st.session_state["bet_selection"] = options[0]
 
     bet_selection = st.selectbox("Bet", options, key="bet_selection")
+
+    pred_scoreline = st.text_input(
+        "Predicted Scoreline",
+        placeholder="e.g. 2:1",
+        key="pred_scoreline",
+    )
 
     odd = st.number_input(
         "Odd",
@@ -283,6 +337,7 @@ if save:
             "bet_factor": factor,
             "bet_type": bet_type,
             "bet": bet_selection,
+            "pred_scoreline": pred_scoreline.strip(),
             "odd": odd,
             "stake_pct": BASE_STAKE_PCT,
             "stake_amt": round(stake, 2),
@@ -354,21 +409,18 @@ else:
     y_min = STARTING_BANKROLL * 0.9
     y_max = STARTING_BANKROLL * 1.1
 
-    # Bankroll line: actual data points only
     line_df = pd.DataFrame({
         "bet_id": chart["bet_id"],
         "value": chart["bankroll_after"],
         "series": ["Bankroll"] * len(chart),
     })
 
-    # Reference line: full span from 1 to x_max
     ref_df = pd.DataFrame({
         "bet_id": list(range(1, x_max + 1)),
         "value": [STARTING_BANKROLL] * x_max,
         "series": ["Start"] * x_max,
     })
 
-    # Chart layers
     bankroll_line = alt.Chart(line_df).mark_line(point=True).encode(
         x=alt.X(
             "bet_id:Q",
@@ -419,10 +471,13 @@ else:
     open_view["Stake"] = open_view["stake_amt"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
 
     st.dataframe(
-        open_view[["bet_id", "Date", "Match", "bet", "Odds", "Stake"]].rename(
+        open_view[
+            ["bet_id", "Date", "Match", "bet", "pred_scoreline", "Odds", "Stake"]
+        ].rename(
             columns={
                 "bet_id": "Bet#",
                 "bet": "Bet",
+                "pred_scoreline": "Pred Score",
             }
         ),
         use_container_width=True,
@@ -492,12 +547,21 @@ else:
 
     st.dataframe(
         hist[[
-            "bet_id", "Date", "Match", "bet",
-            "Odds", "Stake", "result", "Outcome", "PnL"
+            "bet_id",
+            "Date",
+            "Match",
+            "bet",
+            "pred_scoreline",
+            "Odds",
+            "Stake",
+            "result",
+            "Outcome",
+            "PnL",
         ]].rename(
             columns={
                 "bet_id": "Bet#",
                 "bet": "Bet",
+                "pred_scoreline": "Pred Score",
                 "result": "Result",
             }
         ),
