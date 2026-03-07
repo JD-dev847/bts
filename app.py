@@ -348,8 +348,8 @@ else:
     chart["bankroll_after"] = pd.to_numeric(chart["bankroll_after"], errors="coerce")
     chart = chart.dropna()
 
-    y_min = STARTING_BANKROLL * 0.8
-    y_max = STARTING_BANKROLL * 1.2
+    y_min = STARTING_BANKROLL * 0.9
+    y_max = STARTING_BANKROLL * 1.1
 
     ref_df = pd.DataFrame({
         "bet_id": chart["bet_id"],
@@ -366,7 +366,12 @@ else:
     chart_df = pd.concat([line_df, ref_df], ignore_index=True)
 
     bankroll_chart = alt.Chart(chart_df).mark_line(point=True).encode(
-        x=alt.X("bet_id:Q", title="Bet #"),
+
+        x=alt.X(
+    "bet_id:Q",
+    title="Bet #",
+    axis=alt.Axis(format="d", tickMinStep=1)
+),       
         y=alt.Y(
             "value:Q",
             title="Bankroll",
