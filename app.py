@@ -338,6 +338,8 @@ st.caption(
 # Chart
 # --------------------------------------------------
 
+max_bet = int(chart["bet_id"].max())
+x_max = max_bet + 10
 st.subheader("Bankroll")
 
 if settled.empty:
@@ -367,11 +369,12 @@ else:
 
     bankroll_chart = alt.Chart(chart_df).mark_line(point=True).encode(
 
-        x=alt.X(
-    "bet_id:Q",
-    title="Bet #",
-    axis=alt.Axis(format="d", tickMinStep=1)
-),       
+    x=alt.X(
+        "bet_id:Q",
+        title="Bet #",
+        scale=alt.Scale(domain=[1, x_max]),
+        axis=alt.Axis(format="d", tickMinStep=1)
+    ),       
         y=alt.Y(
             "value:Q",
             title="Bankroll",
