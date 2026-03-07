@@ -1,4 +1,6 @@
 from datetime import datetime
+
+import altair as alt
 import gspread
 import pandas as pd
 import streamlit as st
@@ -12,7 +14,6 @@ st.set_page_config(page_title="Bet Tracker", layout="wide")
 
 STARTING_BANKROLL = 100.0
 BASE_STAKE_PCT = 1.0
-GATE_THRESHOLD = 8.0
 
 SHEET_ID = st.secrets["app"]["sheet_id"]
 TAB_NAME = st.secrets["app"]["tab_name"]
@@ -239,7 +240,6 @@ with st.sidebar:
         step=0.5,
         key="score",
     )
-    gate = score >= GATE_THRESHOLD
 
     factor = st.selectbox("Bet Factor", BET_FACTORS, key="factor")
     bet_type = st.selectbox("Bet Type", BET_TYPES, key="bet_type")
@@ -257,8 +257,6 @@ with st.sidebar:
         step=0.01,
         key="odd",
     )
-
-    st.caption(f"Gate pass: {'TRUE' if gate else 'FALSE'}")
 
     save = st.button("Save Bet", use_container_width=True)
     delete_last = st.button("Delete Last Bet", use_container_width=True)
@@ -281,7 +279,7 @@ if save:
             "home": home,
             "away": away,
             "structural_score_total": score,
-            "gate_pass": gate,
+            "gate_pass": score >= 8.0,
             "bet_factor": factor,
             "bet_type": bet_type,
             "bet": bet_selection,
@@ -316,22 +314,24 @@ total_pnl = float(settled["pnl"].sum()) if not settled.empty else 0.0
 total_stake = float(settled["stake_amt"].sum()) if not settled.empty else 0.0
 roi = (total_pnl / total_stake * 100) if total_stake > 0 else 0.0
 avg_odds = float(settled["odd"].mean()) if not settled.empty else 0.0
-winrate = float((settled["outcome"] == "win").mean() * 100) if bets > 0 else 0.0
+
+wins = int((settled["outcome"] == "win").sum()) if not settled.empty else 0
+losses = int((settled["outcome"] == "lost").sum()) if not settled.empty else 0
+winrate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0.0
 
 st.title("Bet Tracker")
 
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Bankroll", f"{bankroll:.2f}")
 c2.metric("PnL", f"{total_pnl:+.2f}")
-c3.metric("ROI", f"{roi:.2f}%")
+c3.metric("ROI", f"{roi:.1f}%")
 c4.metric("Win Rate", f"{winrate:.1f}%")
 c5.metric("Bets", bets)
 c6.metric("Avg Odds", f"{avg_odds:.2f}" if bets > 0 else "—")
 
 st.caption(
     f"Starting bankroll: {STARTING_BANKROLL:.2f} | "
-    f"Base stake: {BASE_STAKE_PCT:.1f}% | "
-    f"Gate threshold: {GATE_THRESHOLD:.1f}"
+    f"Base stake: {BASE_STAKE_PCT:.1f}%"
 )
 
 # --------------------------------------------------
@@ -344,8 +344,44 @@ if settled.empty:
     st.write("No settled bets yet.")
 else:
     chart = settled[["bet_id", "bankroll_after"]].dropna().copy()
-    chart = chart.set_index("bet_id")
-    st.line_chart(chart)
+    chart["bet_id"] = pd.to_numeric(chart["bet_id"], errors="coerce")
+    chart["bankroll_after"] = pd.to_numeric(chart["bankroll_after"], errors="coerce")
+    chart = chart.dropna()
+
+    y_min = STARTING_BANKROLL * 0.8
+    y_max = STARTING_BANKROLL * 1.2
+
+    ref_df = pd.DataFrame({
+        "bet_id": chart["bet_id"],
+        "value": [STARTING_BANKROLL] * len(chart),
+        "series": ["Start"] * len(chart),
+    })
+
+    line_df = pd.DataFrame({
+        "bet_id": chart["bet_id"],
+        "value": chart["bankroll_after"],
+        "series": ["Bankroll"] * len(chart),
+    })
+
+    chart_df = pd.concat([line_df, ref_df], ignore_index=True)
+
+    bankroll_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+        x=alt.X("bet_id:Q", title="Bet #"),
+        y=alt.Y(
+            "value:Q",
+            title="Bankroll",
+            scale=alt.Scale(domain=[y_min, y_max]),
+        ),
+        detail="series:N",
+        strokeDash=alt.condition(
+            alt.datum.series == "Start",
+            alt.value([6, 4]),
+            alt.value([1, 0]),
+        ),
+        tooltip=["bet_id", "series", "value"],
+    )
+
+    st.altair_chart(bankroll_chart, use_container_width=True)
 
 # --------------------------------------------------
 # Open bets
@@ -381,17 +417,17 @@ else:
     pick = st.selectbox("Select bet to settle", list(options.keys()))
     bet_id = options[pick]
 
-c1, c2, c3 = st.columns([2,2,1])
+    c1, c2, c3 = st.columns([2, 2, 1])
 
-with c1:
-    result = st.text_input("Result")
+    with c1:
+        result = st.text_input("Result", placeholder="e.g. 2-1")
 
-with c2:
-    outcome = st.selectbox("Outcome", SETTLE_OUTCOMES)
+    with c2:
+        outcome = st.selectbox("Outcome", SETTLE_OUTCOMES)
 
-with c3:
-    st.markdown("<br>", unsafe_allow_html=True)
-    settle = st.button("Settle Bet", use_container_width=True)
+    with c3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        settle = st.button("Settle Bet", use_container_width=True)
 
     if settle:
         if not result.strip():
@@ -432,17 +468,17 @@ else:
     hist["Odds"] = hist["odd"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     hist["Stake"] = hist["stake_amt"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     hist["PnL"] = hist["pnl"].map(lambda x: f"{x:+.2f}" if pd.notna(x) else "")
-    hist["Bankroll"] = hist["bankroll_after"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "")
     hist["Outcome"] = hist["outcome"].astype(str).str.title()
 
     st.dataframe(
         hist[[
             "bet_id", "Date", "Match", "bet",
-            "Odds", "Stake", "Outcome", "PnL", "Bankroll"
+            "Odds", "Stake", "result", "Outcome", "PnL"
         ]].rename(
             columns={
                 "bet_id": "Bet#",
                 "bet": "Bet",
+                "result": "Result",
             }
         ),
         use_container_width=True,
