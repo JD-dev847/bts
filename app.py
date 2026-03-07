@@ -338,10 +338,6 @@ st.caption(
 # Chart
 # --------------------------------------------------
 
-# --------------------------------------------------
-# Chart
-# --------------------------------------------------
-
 st.subheader("Bankroll")
 
 if settled.empty:
@@ -358,40 +354,52 @@ else:
     y_min = STARTING_BANKROLL * 0.9
     y_max = STARTING_BANKROLL * 1.1
 
-    ref_df = pd.DataFrame({
-        "bet_id": chart["bet_id"],
-        "value": [STARTING_BANKROLL] * len(chart),
-        "series": ["Start"] * len(chart),
-    })
-
+    # Bankroll line: actual data points only
     line_df = pd.DataFrame({
         "bet_id": chart["bet_id"],
         "value": chart["bankroll_after"],
         "series": ["Bankroll"] * len(chart),
     })
 
-    chart_df = pd.concat([line_df, ref_df], ignore_index=True)
+    # Reference line: full span from 1 to x_max
+    ref_df = pd.DataFrame({
+        "bet_id": list(range(1, x_max + 1)),
+        "value": [STARTING_BANKROLL] * x_max,
+        "series": ["Start"] * x_max,
+    })
 
-    bankroll_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+    # Chart layers
+    bankroll_line = alt.Chart(line_df).mark_line(point=True).encode(
         x=alt.X(
             "bet_id:Q",
             title="Bet #",
             scale=alt.Scale(domain=[1, x_max]),
-            axis=alt.Axis(format="d", tickMinStep=1)
+            axis=alt.Axis(format="d", tickMinStep=1),
         ),
         y=alt.Y(
             "value:Q",
             title="Bankroll",
             scale=alt.Scale(domain=[y_min, y_max]),
         ),
-        detail="series:N",
-        strokeDash=alt.condition(
-            alt.datum.series == "Start",
-            alt.value([6, 4]),
-            alt.value([1, 0]),
-        ),
-        tooltip=["bet_id", "series", "value"],
+        color=alt.value("#1f77b4"),
+        tooltip=["bet_id", "value"],
     )
+
+    start_line = alt.Chart(ref_df).mark_line(strokeDash=[6, 4]).encode(
+        x=alt.X(
+            "bet_id:Q",
+            scale=alt.Scale(domain=[1, x_max]),
+            axis=alt.Axis(format="d", tickMinStep=1),
+        ),
+        y=alt.Y(
+            "value:Q",
+            scale=alt.Scale(domain=[y_min, y_max]),
+        ),
+        color=alt.value("#9ca3af"),
+        tooltip=["bet_id", "value"],
+    )
+
+    bankroll_chart = (start_line + bankroll_line).properties(height=320)
 
     st.altair_chart(bankroll_chart, use_container_width=True)
 
