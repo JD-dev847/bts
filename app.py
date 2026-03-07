@@ -338,8 +338,10 @@ st.caption(
 # Chart
 # --------------------------------------------------
 
-max_bet = int(chart["bet_id"].max())
-x_max = max_bet + 10
+# --------------------------------------------------
+# Chart
+# --------------------------------------------------
+
 st.subheader("Bankroll")
 
 if settled.empty:
@@ -349,6 +351,9 @@ else:
     chart["bet_id"] = pd.to_numeric(chart["bet_id"], errors="coerce")
     chart["bankroll_after"] = pd.to_numeric(chart["bankroll_after"], errors="coerce")
     chart = chart.dropna()
+
+    max_bet = int(chart["bet_id"].max())
+    x_max = max_bet + 10
 
     y_min = STARTING_BANKROLL * 0.9
     y_max = STARTING_BANKROLL * 1.1
@@ -368,13 +373,12 @@ else:
     chart_df = pd.concat([line_df, ref_df], ignore_index=True)
 
     bankroll_chart = alt.Chart(chart_df).mark_line(point=True).encode(
-
-    x=alt.X(
-        "bet_id:Q",
-        title="Bet #",
-        scale=alt.Scale(domain=[1, x_max]),
-        axis=alt.Axis(format="d", tickMinStep=1)
-    ),       
+        x=alt.X(
+            "bet_id:Q",
+            title="Bet #",
+            scale=alt.Scale(domain=[1, x_max]),
+            axis=alt.Axis(format="d", tickMinStep=1)
+        ),
         y=alt.Y(
             "value:Q",
             title="Bankroll",
